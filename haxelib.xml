@@ -1,0 +1,7 @@
+<project name="nme-opus" url="https://github.com/soywiz/haxe-nme-opus" license="MIT">
+    <user name="soywiz"/>
+ 	<description>NME haxe extensions for decoding opus audio files.</description>
+    <version name="0.0.1">Initial Release linked to opus 1.0.1</version>
+	<depends name="nme"/>
+	<depends name="hxcpp"/>
+</project>
