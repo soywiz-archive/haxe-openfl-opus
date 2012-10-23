@@ -30,6 +30,8 @@
 	<depend name="${HXCPP}/include/hx/Macros.h"/>
 	<depend name="${HXCPP}/include/hx/CFFI.h"/>
 
+	<compilerflag value="-I${ANDROID_NDK_ROOT}/sources/cpufeatures" if="android"/>
+	
 	<compilerflag value="-Iinclude" />
 	<compilerflag value="-Iopus" />
 	<compilerflag value="-Iopus/include" />
@@ -46,9 +48,6 @@
 	<compilerflag value="-DRANDOM_PREFIX=speex" />
 	<compilerflag value="-DSPX_RESAMPLE_EXPORT=" />
 	
-	
-	
-
 	<compilerflag value="-Dinline=__inline" if="windows" />
 	<compilerflag value="-DWIN32" if="windows" />
 	
