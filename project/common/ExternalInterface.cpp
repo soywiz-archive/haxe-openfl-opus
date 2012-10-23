@@ -18,6 +18,7 @@
 #include "../ogg/include/ogg/ogg.h"
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 extern "C" {
 #include "../opus_tools/opus_header.h"
