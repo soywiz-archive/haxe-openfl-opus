@@ -1,7 +1,7 @@
 package opus;
 import haxe.io.Bytes;
-import neash.utils.ByteArray;
-import nme.media.Sound;
+import flash.utils.ByteArray;
+import flash.media.Sound;
 import sys.FileSystem;
 import sys.io.File;
 
@@ -21,7 +21,7 @@ class Opus {
 		return sound;
 	}
 	
-	static var hx_opus_get_version_string = cpp.Lib.load("nme-opus", "hx_opus_get_version_string", 0);
-	static var hx_opus_decode_all = cpp.Lib.load("nme-opus", "hx_opus_decode_all", 2);
+	static var hx_opus_get_version_string = cpp.Lib.load("openfl-opus", "hx_opus_get_version_string", 0);
+	static var hx_opus_decode_all = cpp.Lib.load("openfl-opus", "hx_opus_decode_all", 2);
 	
 }

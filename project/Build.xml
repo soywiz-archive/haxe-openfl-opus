@@ -199,7 +199,7 @@
 <files id="windows">
 </files>
 	
-<target id="NDLL" output="${name_prefix}nme-opus${name_extra}" tool="linker" toolid="${ndll-tool}">
+<target id="NDLL" output="${name_prefix}openfl-opus${name_extra}" tool="linker" toolid="${ndll-tool}">
 	<outdir name="../ndll/${BINDIR}" />
 	<ext value=".ndll" unless="mobile"/>
 

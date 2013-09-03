@@ -80,6 +80,8 @@ opus_int silk_control_audio_bandwidth(
                 } else {
                    if( psEncC->sLP.transition_frame_no <= 0 ) {
                        encControl->switchReady = 1;
+                       /* Make room for redundancy */
+                       encControl->maxBits -= encControl->maxBits * 5 / ( encControl->payloadSize_ms + 5 );
                    } else {
                        /* Direction: down (at double speed) */
                        psEncC->sLP.mode = -2;
@@ -106,11 +108,16 @@ opus_int silk_control_audio_bandwidth(
                 } else {
                    if( psEncC->sLP.mode == 0 ) {
                        encControl->switchReady = 1;
+                       /* Make room for redundancy */
+                       encControl->maxBits -= encControl->maxBits * 5 / ( encControl->payloadSize_ms + 5 );
                    } else {
                        /* Direction: up */
                        psEncC->sLP.mode = 1;
                    }
                 }
+            } else {
+               if (psEncC->sLP.mode<0)
+                  psEncC->sLP.mode = 1;
             }
         }
     }

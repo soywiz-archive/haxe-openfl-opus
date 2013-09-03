@@ -2,23 +2,29 @@
 #define IMPLEMENT_API
 #endif
 
+#ifndef STATIC_LINK
+#define IMPLEMENT_API
+#endif
+
 #undef inline
 
 //#include <hx/CFFI.h>
 
 //#include <Object.h>
 
-#include <hxcpp.h>
+//#include <hxcpp.h>
 //#include <hx/Macros.h>
 #include <hx/CFFI.h>
 //#include <hx/CFFIAPI.h>
-#include <hxcpp.h>
+//#include <hxcpp.h>
 #include "../opus/include/opus.h"
 #include "../opus/include/opus_multistream.h"
 #include "../ogg/include/ogg/ogg.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <malloc.h>
+//#include <alloca.h>
 
 extern "C" {
 #include "../opus_tools/opus_header.h"

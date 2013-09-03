@@ -291,7 +291,7 @@ static unsigned char gen_toc(int mode, int framerate, int bandwidth, int channel
 }
 
 #ifndef FIXED_POINT
-void silk_biquad_float(
+static void silk_biquad_float(
     const opus_val16      *in,            /* I:    Input signal                   */
     const opus_int32      *B_Q28,         /* I:    MA coefficients [3]            */
     const opus_int32      *A_Q28,         /* I:    AR coefficients [2]            */
@@ -458,20 +458,20 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
     int prefill=0;
     int start_band = 0;
     int redundancy = 0;
-    int redundancy_bytes = 0;
+    int redundancy_bytes = 0; /* Number of bytes to use for redundancy frame */
     int celt_to_silk = 0;
     VARDECL(opus_val16, pcm_buf);
     int nb_compr_bytes;
     int to_celt = 0;
     opus_uint32 redundant_rng = 0;
     int cutoff_Hz, hp_freq_smth1;
-    int voice_est;
+    int voice_est; /* Probability of voice in Q7 */
     opus_int32 equiv_rate;
     int delay_compensation;
     int frame_rate;
-    opus_int32 max_rate;
+    opus_int32 max_rate; /* Max bitrate we're allowed to use */
     int curr_bandwidth;
-    opus_int32 max_data_bytes;
+    opus_int32 max_data_bytes; /* Max number of bytes we're allowed to use */
     VARDECL(opus_val16, tmp_prefill);
 
     ALLOC_STACK;
@@ -652,11 +652,22 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
             }
         }
     }
+    /* For the first frame at a new SILK bandwidth */
     if (st->silk_bw_switch)
     {
        redundancy = 1;
        celt_to_silk = 1;
        st->silk_bw_switch = 0;
+       prefill=1;
+    }
+
+    if (redundancy)
+    {
+       /* Fair share of the max size allowed */
+       redundancy_bytes = IMIN(257, max_data_bytes*(opus_int32)(st->Fs/200)/(frame_size+st->Fs/200));
+       /* For VBR, target the actual bitrate (subject to the limit above) */
+       if (st->use_vbr)
+          redundancy_bytes = IMIN(redundancy_bytes, st->bitrate_bps/1600);
     }
 
     if (st->mode != MODE_CELT_ONLY && st->prev_mode == MODE_CELT_ONLY)
@@ -823,7 +834,7 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
         st->mode = MODE_SILK_ONLY;
 
     /* printf("%d %d %d %d\n", st->bitrate_bps, st->stream_channels, st->mode, curr_bandwidth); */
-    bytes_target = IMIN(max_data_bytes, st->bitrate_bps * frame_size / (st->Fs * 8)) - 1;
+    bytes_target = IMIN(max_data_bytes-redundancy_bytes, st->bitrate_bps * frame_size / (st->Fs * 8)) - 1;
 
     data += 1;
 
@@ -929,7 +940,7 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
         st->silk_mode.useCBR = !st->use_vbr;
 
         /* Call SILK encoder for the low band */
-        nBytes = IMIN(1275, max_data_bytes-1);
+        nBytes = IMIN(1275, max_data_bytes-1-redundancy_bytes);
 
         st->silk_mode.maxBits = nBytes*8;
         /* Only allow up to 90% of the bits for hybrid mode*/
@@ -941,8 +952,6 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
            /* Reduce the initial target to make it easier to reach the CBR rate */
            st->silk_mode.bitRate = IMAX(1, st->silk_mode.bitRate-2000);
         }
-        if (redundancy)
-           st->silk_mode.maxBits -= st->silk_mode.maxBits/(1 + frame_size/(st->Fs/200));
 
         if (prefill)
         {
@@ -990,6 +999,7 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
         }
 
         st->silk_mode.opusCanSwitch = st->silk_mode.switchReady;
+        /* FIXME: How do we allocate the redundancy for CBR? */
         if (st->silk_mode.opusCanSwitch)
         {
            redundancy = 1;
@@ -1047,7 +1057,7 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
                 celt_encoder_ctl(celt_enc, OPUS_SET_VBR(1));
                 celt_encoder_ctl(celt_enc, OPUS_SET_VBR_CONSTRAINT(st->vbr_constraint));
                 celt_encoder_ctl(celt_enc, OPUS_SET_BITRATE(st->bitrate_bps));
-                nb_compr_bytes = max_data_bytes-1;
+                nb_compr_bytes = max_data_bytes-1-redundancy_bytes;
             } else {
                 nb_compr_bytes = bytes_target;
             }
@@ -1119,8 +1129,10 @@ opus_int32 opus_encode_float(OpusEncoder *st, const opus_val16 *pcm, int frame_s
     }
 
     if (!redundancy)
+    {
        st->silk_bw_switch = 0;
-
+       redundancy_bytes = 0;
+    }
     if (st->mode != MODE_CELT_ONLY)start_band=17;
 
     if (st->mode == MODE_SILK_ONLY)

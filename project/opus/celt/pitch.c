@@ -77,7 +77,7 @@ static void find_best_pitch(opus_val32 *xcorr, opus_val16 *y, int len,
 #ifndef FIXED_POINT
          /* Considering the range of xcorr16, this should avoid both underflows
             and overflows (inf) when squaring xcorr16 */
-         xcorr16 *= 1e-12;
+         xcorr16 *= 1e-12f;
 #endif
          num = MULT16_16_Q15(xcorr16,xcorr16);
          if (MULT16_32_Q15(num,best_den[1]) > MULT16_32_Q15(best_num[1],Syy))
@@ -180,7 +180,7 @@ void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTR
    VARDECL(opus_val32, xcorr);
 #ifdef FIXED_POINT
    opus_val32 maxcorr=1;
-   opus_val16 xmax, ymax;
+   opus_val32 xmax, ymax;
    int shift=0;
 #endif
    int offset;
@@ -204,7 +204,7 @@ void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTR
 #ifdef FIXED_POINT
    xmax = celt_maxabs16(x_lp4, len>>2);
    ymax = celt_maxabs16(y_lp4, lag>>2);
-   shift = celt_ilog2(MAX16(1, MAX16(xmax, ymax)))-11;
+   shift = celt_ilog2(MAX32(1, MAX32(xmax, ymax)))-11;
    if (shift>0)
    {
       for (j=0;j<len>>2;j++)

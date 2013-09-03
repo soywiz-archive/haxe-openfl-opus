@@ -54,7 +54,7 @@ void silk_find_pitch_lags_FIX(
     /******************************************/
     buf_len = psEnc->sCmn.la_pitch + psEnc->sCmn.frame_length + psEnc->sCmn.ltp_mem_length;
 
-    /* Safty check */
+    /* Safety check */
     silk_assert( buf_len >= psEnc->sCmn.pitch_LPC_win_length );
 
     x_buf = x - psEnc->sCmn.ltp_mem_length;
@@ -101,7 +101,7 @@ void silk_find_pitch_lags_FIX(
     }
 
     /* Do BWE */
-    silk_bwexpander( A_Q12, psEnc->sCmn.pitchEstimationLPCOrder, SILK_FIX_CONST( FIND_PITCH_BANDWITH_EXPANSION, 16 ) );
+    silk_bwexpander( A_Q12, psEnc->sCmn.pitchEstimationLPCOrder, SILK_FIX_CONST( FIND_PITCH_BANDWIDTH_EXPANSION, 16 ) );
 
     /*****************************************/
     /* LPC analysis filtering                */
