@@ -23,7 +23,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <malloc.h>
+#ifdef HX_WINDOWS
+	#include <malloc.h>
+#endif
 //#include <alloca.h>
 
 extern "C" {
