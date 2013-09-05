@@ -34,6 +34,14 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "resampler_private.h"
 
+/* Tables for 2x downsampler */
+silk_DWORD_ALIGN const opus_int16 silk_resampler_down2_0 = 9872;
+silk_DWORD_ALIGN const opus_int16 silk_resampler_down2_1 = 39809 - 65536;
+
+/* Tables for 2x upsampler, high quality */
+silk_DWORD_ALIGN const opus_int16 silk_resampler_up2_hq_0[ 3 ] = { 1746, 14986, 39083 - 65536 };
+silk_DWORD_ALIGN const opus_int16 silk_resampler_up2_hq_1[ 3 ] = { 6854, 25769, 55542 - 65536 };
+
 /* Matlab code for the notch filter coefficients: */
 /* B = [1, 0.147, 1];  A = [1, 0.107, 0.89]; G = 0.93; freqz(G * B, A, 2^14, 16e3); axis([0, 8000, -10, 1]) */
 /* fprintf('\t%6d, %6d, %6d, %6d\n', round(B(2)*2^16), round(-A(2)*2^16), round((1-A(3))*2^16), round(G*2^15)) */
