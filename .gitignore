@@ -4,3 +4,9 @@
 /project/all_objs
 /deploy.zip
 .DS_Store
+/project/common/*.sdf
+/project/common/*.suo
+/project/common/Debug/*.idb
+/project/common/Debug/*.pdb
+/project/common/Debug
+/project/common/*.opensdf

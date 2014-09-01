@@ -64,6 +64,11 @@
 	<file name="opus/src/opus_encoder.c" />
 	<file name="opus/src/opus_multistream.c" />
 	<file name="opus/src/repacketizer.c" />
+	<file name="opus/src/analysis.c" />
+	<file name="opus/src/mlp.c" />
+	<file name="opus/src/mlp_data.c" />
+	<file name="opus/src/opus_multistream_decoder.c" />
+	<file name="opus/src/opus_multistream_encoder.c" />
 	
 	<file name="opus/celt/bands.c" />
 	<file name="opus/celt/celt.c" />
@@ -81,6 +86,14 @@
 	<file name="opus/celt/quant_bands.c" />
 	<file name="opus/celt/rate.c" />
 	<file name="opus/celt/vq.c" />
+	<file name="opus/celt/celt_decoder.c" />
+	<file name="opus/celt/celt_encoder.c" />
+
+	<!--
+	<file name="opus/celt/arm/arm_celt_map.c" if="arm" />
+	<file name="opus/celt/arm/armcpu.c" if="arm" />
+	<file name="opus/celt/arm/celt_pitch_xcorr_arm.s" if="arm" />
+	-->
 	
 	<file name="opus/silk/float/apply_sine_window_FLP.c" />
 	<file name="opus/silk/float/autocorrelation_FLP.c" />

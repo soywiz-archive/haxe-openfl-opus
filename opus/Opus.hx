@@ -5,6 +5,12 @@ import flash.media.Sound;
 import sys.FileSystem;
 import sys.io.File;
 
+#if neko
+import neko.Lib;
+#else
+import cpp.Lib;
+#end
+
 class Opus {
 	public static function getVersion():String {
 		return hx_opus_get_version_string();
@@ -21,7 +27,7 @@ class Opus {
 		return sound;
 	}
 	
-	static var hx_opus_get_version_string = cpp.Lib.load("openfl-opus", "hx_opus_get_version_string", 0);
-	static var hx_opus_decode_all = cpp.Lib.load("openfl-opus", "hx_opus_decode_all", 2);
+	static var hx_opus_get_version_string = Lib.load("openfl-opus", "hx_opus_get_version_string", 0);
+	static var hx_opus_decode_all = Lib.load("openfl-opus", "hx_opus_decode_all", 2);
 	
 }
