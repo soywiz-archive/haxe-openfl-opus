@@ -452,7 +452,7 @@ extern "C" {
 		return alloc_string(opus_get_version_string());
 	}
 
-	void hx_opus_finalize(value _value){
+	void hx_opus_finalize(value opus_value){
 		Opus * opus = (Opus *)val_to_kind(opus_value, get_opus_kind());
 		delete opus;
 	}
