@@ -21,7 +21,7 @@ class Opus {
 		var sound:Sound = new Sound();
 		var bytesPerSample:Int = 2;
 		var channels:Int = 2;
-		var rate:Int = 44100;
+		var rate:Int = 48000;
 		var bytes:Bytes = Bytes.ofData(hx_opus_decode_all(bytes.getData(), rate));
 		sound.loadPCMFromByteArray(ByteArray.fromBytes(bytes), Std.int(bytes.length / (bytesPerSample * channels)), "short", (channels == 2) ? true : false, rate);
 		return sound;
