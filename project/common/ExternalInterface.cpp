@@ -64,8 +64,101 @@ extern "C" {
 #define snprintf _snprintf
 #endif
 
+#define MINI(_a,_b)      ((_a)<(_b)?(_a):(_b))
+#define MAXI(_a,_b)      ((_a)>(_b)?(_a):(_b))
+#define CLAMPI(_a,_b,_c) (MAXI(_a,MINI(_b,_c)))
+
 /* 120ms at 48000 */
 #define MAX_FRAME_SIZE (960*6)
+
+typedef struct shapestate shapestate;
+struct shapestate {
+  float * b_buf;
+  float * a_buf;
+  int fs;
+  int mute;
+};
+
+static unsigned int rngseed = 22222;
+static inline unsigned int fast_rand(void) {
+  rngseed = (rngseed * 96314165) + 907633515;
+  return rngseed;
+}
+
+/* This implements a 16 bit quantization with full triangular dither
+   and IIR noise shaping. The noise shaping filters were designed by
+   Sebastian Gesemann based on the LAME ATH curves with flattening
+   to limit their peak gain to 20 dB.
+   (Everyone elses' noise shaping filters are mildly crazy)
+   The 48kHz version of this filter is just a warped version of the
+   44.1kHz filter and probably could be improved by shifting the
+   HF shelf up in frequency a little bit since 48k has a bit more
+   room and being more conservative against bat-ears is probably
+   more important than more noise suppression.
+   This process can increase the peak level of the signal (in theory
+   by the peak error of 1.5 +20 dB though this much is unobservable rare)
+   so to avoid clipping the signal is attenuated by a couple thousandths
+   of a dB. Initially the approach taken here was to only attenuate by
+   the 99.9th percentile, making clipping rare but not impossible (like
+   SoX) but the limited gain of the filter means that the worst case was
+   only two thousandths of a dB more, so this just uses the worst case.
+   The attenuation is probably also helpful to prevent clipping in the DAC
+   reconstruction filters or downstream resampling in any case.*/
+static inline void shape_dither_toshort(shapestate *_ss, short *_o, float *_i, int _n, int _CC)
+{
+  const float gains[3]={32768.f-15.f,32768.f-15.f,32768.f-3.f};
+  const float fcoef[3][8] =
+  {
+    {2.2374f, -.7339f, -.1251f, -.6033f, 0.9030f, .0116f, -.5853f, -.2571f}, /* 48.0kHz noise shaping filter sd=2.34*/
+    {2.2061f, -.4706f, -.2534f, -.6214f, 1.0587f, .0676f, -.6054f, -.2738f}, /* 44.1kHz noise shaping filter sd=2.51*/
+    {1.0000f, 0.0000f, 0.0000f, 0.0000f, 0.0000f,0.0000f, 0.0000f, 0.0000f}, /* lowpass noise shaping filter sd=0.65*/
+  };
+  int i;
+  int rate=_ss->fs==44100?1:(_ss->fs==48000?0:2);
+  float gain=gains[rate];
+  float *b_buf;
+  float *a_buf;
+  int mute=_ss->mute;
+  b_buf=_ss->b_buf;
+  a_buf=_ss->a_buf;
+  /*In order to avoid replacing digital silence with quiet dither noise
+    we mute if the output has been silent for a while*/
+  if(mute>64)
+    memset(a_buf,0,sizeof(float)*_CC*4);
+  for(i=0;i<_n;i++)
+  {
+    int c;
+    int pos = i*_CC;
+    int silent=1;
+    for(c=0;c<_CC;c++)
+    {
+      int j, si;
+      float r,s,err=0;
+      silent&=_i[pos+c]==0;
+      s=_i[pos+c]*gain;
+      for(j=0;j<4;j++)
+        err += fcoef[rate][j]*b_buf[c*4+j] - fcoef[rate][j+4]*a_buf[c*4+j];
+      memmove(&a_buf[c*4+1],&a_buf[c*4],sizeof(float)*3);
+      memmove(&b_buf[c*4+1],&b_buf[c*4],sizeof(float)*3);
+      a_buf[c*4]=err;
+      s = s - err;
+      r=(float)fast_rand()*(1/(float)UINT_MAX) - (float)fast_rand()*(1/(float)UINT_MAX);
+      if (mute>16)r=0;
+      /*Clamp in float out of paranoia that the input will be >96 dBFS and wrap if the
+        integer is clamped.*/
+      _o[pos+c] = si = float2int(fmaxf(-32768,fminf(s + r,32767)));
+      /*Including clipping in the noise shaping is generally disastrous:
+        the futile effort to restore the clipped energy results in more clipping.
+        However, small amounts-- at the level which could normally be created by
+        dither and rounding-- are harmless and can even reduce clipping somewhat
+        due to the clipping sometimes reducing the dither+rounding error.*/
+      b_buf[c*4] = (mute>16)?0:fmaxf(-1.5f,fminf(si - s,1.5f));
+    }
+    mute++;
+    if(!silent)mute=0;
+  }
+  _ss->mute=MINI(mute,960);
+}
 
 struct MemoryStream {
 	char *start;
@@ -171,16 +264,63 @@ static OpusMSDecoder *process_header(
 
 SpeexResamplerState *resampler = NULL;
 
-opus_int64 audio_write(buffer _buf, float *pcm, int channels, int frame_size, int *skip, opus_int64 maxout)
+opus_int64 audio_write(buffer _buf, float *pcm, int channels, int frame_size, SpeexResamplerState *resampler,
+                       int *skip, shapestate *shapemem, opus_int64 maxout)
 {
-	int write_samples = channels * frame_size;
-	short *temp = (short *)alloca(sizeof(short) * write_samples);
-	for (int n = 0; n < write_samples; n++) temp[n] = (short)(pcm[n] * 0x7FFF);
-	buffer_append_sub(_buf, (char *)temp, sizeof(short) * write_samples);
-	return frame_size;
+   opus_int64 sampout=0;
+   int i,ret,tmp_skip;
+   unsigned out_len;
+   short *out;
+   float *buf;
+   float *output;
+   out=(short *)alloca(sizeof(short)*MAX_FRAME_SIZE*channels);
+   buf=(float *)alloca(sizeof(float)*MAX_FRAME_SIZE*channels);
+   maxout=maxout<0?0:maxout;
+   do {
+     if (skip){
+       tmp_skip = (*skip>frame_size) ? (int)frame_size : *skip;
+       *skip -= tmp_skip;
+     } else {
+       tmp_skip = 0;
+     }
+     if (resampler){
+       unsigned in_len;
+       output=buf;
+       in_len = frame_size-tmp_skip;
+       out_len = 1024<maxout?1024:maxout;
+       speex_resampler_process_interleaved_float(resampler, pcm+channels*tmp_skip, &in_len, buf, &out_len);
+       pcm += channels*(in_len+tmp_skip);
+       frame_size -= in_len+tmp_skip;
+     } else {
+       output=pcm+channels*tmp_skip;
+       out_len=frame_size-tmp_skip;
+       frame_size=0;
+     }
+
+     /*Convert to short and save to output file*/
+     if (shapemem){
+       shape_dither_toshort(shapemem,out,output,out_len,channels);
+     }else{
+       for (i=0;i<(int)out_len*channels;i++)
+         out[i]=(short)float2int(fmaxf(-32768,fminf(output[i]*32768.f,32767)));
+     }
+     if ((le_short(1)!=1)){
+       for (i=0;i<(int)out_len*channels;i++)
+         out[i]=le_short(out[i]);
+     }
+
+     if(maxout>0)
+     {
+	   int writeLen = (out_len<maxout?out_len:maxout);
+	   buffer_append_sub(_buf, (char *)out, 2*channels*writeLen);
+       sampout+=writeLen;
+       maxout-=writeLen;
+     }
+   } while (frame_size>0 && maxout>0);
+   return sampout;
 }
 
-int decode(buffer buf, MemoryStream *fin)
+int decode(buffer buf, MemoryStream *fin, int rate)
 {
 	int c;
 	int option_index = 0;
@@ -190,7 +330,7 @@ int decode(buffer buf, MemoryStream *fin)
 	opus_int64 packet_count = 0;
 	int total_links = 0;
 	int stream_init = 0;
-	int quiet = 0;
+	int quiet = 1;
 	ogg_int64_t page_granule = 0;
 	ogg_int64_t link_out = 0;
 	ogg_sync_state oy;
@@ -205,13 +345,14 @@ int decode(buffer buf, MemoryStream *fin)
 	float manual_gain = 0;
 	int channels = -1;
 	int mapping_family;
-	int rate = 48000;
 	int wav_format = 0;
 	int preskip = 0;
 	int gran_offset = 0;
 	int has_opus_stream = 0;
 	ogg_int32_t opus_serialno;
 	int dither = 1;
+	shapestate shapemem;
+	SpeexResamplerState *resampler=NULL;
 	float gain = 1;
 	int streams = 0;
 	size_t last_spin = 0;
@@ -226,6 +367,10 @@ int decode(buffer buf, MemoryStream *fin)
 
 
 	output = 0;
+	shapemem.a_buf=0;
+	shapemem.b_buf=0;
+	shapemem.mute=960;
+	shapemem.fs=0;
 
 	/* .opus files use the Ogg container to provide framing and timekeeping.
 	 * http://tools.ietf.org/html/draft-terriberry-oggopus
@@ -298,17 +443,27 @@ int decode(buffer buf, MemoryStream *fin)
 					gran_offset = preskip;
 
 					/*Setup the memory for the dithered output*/
-					/*
 					if(!shapemem.a_buf)
-					{
-					shapemem.a_buf=calloc(channels,sizeof(float)*4);
-					shapemem.b_buf=calloc(channels,sizeof(float)*4);
-					shapemem.fs=rate;
-					}
-					*/
+				    {
+					   shapemem.a_buf=(float *)calloc(channels,sizeof(float)*4);
+					   shapemem.b_buf=(float *)calloc(channels,sizeof(float)*4);
+					   shapemem.fs=rate;
+				    }
 					if (!output) {
 						output = (float *)malloc(sizeof(float)*MAX_FRAME_SIZE*channels);
 					}
+					/*Normal players should just play at 48000 or their maximum rate,
+					 as described in the OggOpus spec.  But for commandline tools
+					 like opusdec it can be desirable to exactly preserve the original
+					 sampling rate and duration, so we have a resampler here.*/
+				    if (rate != 48000)
+				    {
+					   int err;
+					   resampler = speex_resampler_init(channels, 48000, rate, 5, &err);
+					   if (err!=0)
+				 	 	 fprintf(stderr, "resampler error: %s\n", speex_resampler_strerror(err));
+			 		   speex_resampler_skip_zeros(resampler);
+				    }
 				}
 				else if (packet_count == 1)
 				{
@@ -397,13 +552,34 @@ int decode(buffer buf, MemoryStream *fin)
 					  the final end-trim by not letting the output sample count
 					  get ahead of the granpos indicated value.*/
 					maxout = ((page_granule - gran_offset)*rate / 48000) - link_out;
-					outsamp = audio_write(buf, output, channels, frame_size, &preskip, 0 > maxout ? 0 : maxout);
+					outsamp = audio_write(buf, output, channels, frame_size, resampler, &preskip, dither?&shapemem:0, 0 > maxout ? 0 : maxout);
 					link_out += outsamp;
 					audio_size += sizeof(short)*outsamp*channels;
 				}
 				packet_count++;
 			}
+			/*We're done, drain the resampler if we were using it.*/
+			 if(eos && resampler)
+			 {
+				float *zeros;
+				int drain;
 
+				zeros=(float *)calloc(100*channels,sizeof(float));
+				drain = speex_resampler_get_input_latency(resampler);
+				do {
+				   opus_int64 outsamp;
+				   int tmp = drain;
+				   if (tmp > 100)
+					  tmp = 100;
+				   outsamp=audio_write(buf, zeros, channels, tmp, resampler, NULL, &shapemem, ((page_granule-gran_offset)*rate/48000)-link_out);
+				   link_out+=outsamp;
+				   audio_size+=sizeof(short)*outsamp*channels;
+				   drain -= tmp;
+				} while (drain>0);
+				free(zeros);
+				speex_resampler_destroy(resampler);
+				resampler=NULL;
+			 }
 			if (eos)
 			{
 				has_opus_stream = 0;
@@ -427,10 +603,8 @@ int decode(buffer buf, MemoryStream *fin)
 		ogg_stream_clear(&os);
 	ogg_sync_clear(&oy);
 
-	/*
 	if(shapemem.a_buf)free(shapemem.a_buf);
 	if(shapemem.b_buf)free(shapemem.b_buf);
-	*/
 
 	if (output)free(output);
 
@@ -452,7 +626,7 @@ extern "C" {
 		return alloc_string(opus_get_version_string());
 	}
 
-	void hx_opus_finalize(value _value){
+	void hx_opus_finalize(value opus_value){
 		Opus * opus = (Opus *)val_to_kind(opus_value, get_opus_kind());
 		delete opus;
 	}
@@ -487,42 +661,7 @@ extern "C" {
 		buffer data_buffer = val_to_buffer(data_buffer_value);
 		fmemopen(&fin, buffer_data(data_buffer), buffer_size(data_buffer));
 		buffer buf = alloc_buffer_len(0);
-		decode(buf, &fin);
-
-		//printf("[a]\n");
-		if (rate != 48000) {
-			int bytes_per_sample = sizeof(short) * 2;
-
-			char *in_ptr = buffer_data(buf);
-			unsigned int  in_len = buffer_size(buf) / bytes_per_sample;
-
-			char *out_ptr = new char[in_len * bytes_per_sample];
-			unsigned int  out_len = in_len;
-
-			int err = 0;
-			SpeexResamplerState *resampler = speex_resampler_init(2, 48000, rate, 0, &err);
-			//printf("[b] %d\n", err);
-			//printf("%p, %p, %p, %d, %d\n", resampler, in_ptr, out_ptr, in_len, out_len);
-			speex_resampler_process_interleaved_int(
-				resampler,
-				(short *)in_ptr,
-				&in_len,
-				(short *)out_ptr,
-				&out_len
-				);
-			//printf("[c]\n");
-			speex_resampler_destroy(resampler);
-
-			buffer_set_size(buf, 0);
-			buffer_append_sub(buf, out_ptr, out_len * bytes_per_sample);
-
-			//printf("[d]\n");
-
-			delete out_ptr;
-		}
-
-		//printf("[e]\n");
-		//char* data = buffer_data(buf);
+		decode(buf, &fin, rate);
 
 		return buffer_val(buf);
 	}
